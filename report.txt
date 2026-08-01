@@ -1,21 +1,23 @@
-1. Architectural analysis
+Architectural analysis
 
-This project uses one pre allocated memory block and divides it into fixed size chunks. The pool stores free chunks in a simple lock free linked list. Each chunk is represented by a `Node` structure, and the head of the free list is maintained by an atomic pointer.
+The project uses one pre allocated memory block and splits it into fixed size chunks. Free chunks are stored in a simple lock free linked list. Each chunk is a `Node`, and the head of the list is an atomic pointer.
 
-Chunk allocation and deallocation work by updating the head pointer with compare-and-swap. On allocation, a chunk is removed from the front of the free list. On deallocation, the returned chunk is pushed back onto the front of the list. This avoids using locks and allows multiple threads to use the pool at the same time.
+When a chunk is needed, the code takes the first one from the list. When a chunk is returned, it is pushed back onto the front. This is done with compare-and-swap so no locks are used.
 
-2. Concurrency safety
+Concurrency safety
 
-The allocator uses `std::atomic<Node*>` for the free list head and `compare_exchange_weak` for modifications. This makes allocation and deallocation thread-safe without mutexes. The `Node` structure and the atomic head pointer are aligned to 64 bytes to help reduce false sharing between threads.
+The free list head is a `std::atomic<Node*>`, and both allocation and deallocation use `compare_exchange_weak`. This lets multiple threads work on the same pool without a mutex. The `Node` and the head pointer are aligned to 64 bytes to help reduce false sharing between threads.
 
-Because the pool only reuses chunks from a fixed buffer and does not free memory back to the system, there is no complex reclamation logic needed. Freed chunks are added back to the free list so they can be used again.
+The pool only reuses memory from the same buffer and does not return memory to the system. Freed chunks go back into the free list and can be used again.
 
-3. Performance trade offs
+Performance trade offs
 
-This allocator is designed for repeated fixed size allocations. It avoids the overhead of the general-purpose heap by pre-allocating one block and reusing chunks directly. This makes it faster for workloads where all allocations are the same size.
+This pool works best when all allocations are the same size. It pre-allocates one block and reuses chunks, instead of calling `malloc` and `free` for every operation.
 
-The trade off is that it does not support variable-sized allocations, dynamic pool growth, or merging of adjacent free chunks. It also assumes the pool is large enough for the expected workload. This design works well when many fixed size memory blocks are needed.
+The trade off is that it does not support different chunk sizes or automatic growth. It also does not merge free chunks, so the pool must be big enough for the workload.
 
-4. Memory safety audit
+Memory safety audit
 
-The implementation uses properly aligned storage and atomic operations for the free list. The pool buffer is allocated once and released once in the destructor. During testing, the project was built and run with AddressSanitizer using Microsoft Visual Studio 2022 Build Tools. AddressSanitizer did not report any memory errors during testing.
+The buffer is allocated once and released once in the destructor. The free list uses atomic updates, which avoids races on the list itself.
+
+AddressSanitizer was run on MSVC, and it did not report any memory errors.
