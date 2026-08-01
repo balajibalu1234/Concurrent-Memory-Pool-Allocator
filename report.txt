@@ -1,42 +1,21 @@
-Verification report:
+1. Architectural analysis
 
-Build environment:
-1. Microsoft Visual Studio 2022 Build Tools
-2. MSVC compiler: cl.exe
-3. Configuration: x64, C++20, warning level /W4
+This project uses one pre allocated memory block and divides it into fixed size chunks. The pool stores free chunks in a simple lock free linked list. Each chunk is represented by a `Node` structure, and the head of the free list is maintained by an atomic pointer.
 
-Build results:
-1. Standard build command: cl /nologo /std:c++20 /W4 /EHsc main.cpp /Fe:pool.exe
-2. Result: succeeded with no compiler errors and no warnings after a minimal MSVC-specific warning suppression for intentionally aligned types.
+Chunk allocation and deallocation work by updating the head pointer with compare-and-swap. On allocation, a chunk is removed from the front of the free list. On deallocation, the returned chunk is pushed back onto the front of the list. This avoids using locks and allows multiple threads to use the pool at the same time.
 
-AddressSanitizer results:
-1. ASan build command: cl /nologo /std:c++20 /W4 /EHsc /fsanitize=address /Zi main.cpp /Fe:pool_asan.exe
-2. Result: succeeded, and the executable ran without sanitizer diagnostics.
-3. Conclusion: AddressSanitizer is supported in this MSVC installation.
+2. Concurrency safety
 
-Runtime results:
-1. Executable output:
-   1. simple pool allocator demo
-   2. basic allocation worked
-   3. pool time: 0.0154817 seconds
-   4. pool throughput: 3.10043e+06 ops/s
-   5. pool avg latency: 322.535 ns/op
-   6. pool fragmentation estimate: 12000 live blocks
-   7. std time: 0.0321597 seconds
-   8. std throughput: 1.49254e+06 ops/s
-   9. std avg latency: 669.998 ns/op
-   10. std fragmentation estimate: 12000 live blocks
-   11. done
-2. Result: no runtime errors or memory errors were observed.
+The allocator uses `std::atomic<Node*>` for the free list head and `compare_exchange_weak` for modifications. This makes allocation and deallocation thread-safe without mutexes. The `Node` structure and the atomic head pointer are aligned to 64 bytes to help reduce false sharing between threads.
 
-Requirement check:
-1. Build with MSVC C++20 compiler and /W4: verified by successful cl.exe build.
-2. Implement a simple pool allocator: verified by the presence of SimplePool and its allocation/deallocation logic in main.cpp.
-3. Support concurrent allocation and deallocation safely: verified by atomic free-list operations in the allocator implementation.
-4. Benchmark the pool allocator against std::malloc/std::free: verified by the benchmark functions and runtime output.
-5. Run the executable successfully: verified by the program output shown above.
-6. Check for compiler, runtime, memory, and sanitizer issues: verified; no errors were found.
+Because the pool only reuses chunks from a fixed buffer and does not free memory back to the system, there is no complex reclamation logic needed. Freed chunks are added back to the free list so they can be used again.
 
-Overall status:
-1. Ready for GitHub: yes.
-2. Meets the assignment requirements: yes.
+3. Performance trade offs
+
+This allocator is designed for repeated fixed size allocations. It avoids the overhead of the general-purpose heap by pre-allocating one block and reusing chunks directly. This makes it faster for workloads where all allocations are the same size.
+
+The trade off is that it does not support variable-sized allocations, dynamic pool growth, or merging of adjacent free chunks. It also assumes the pool is large enough for the expected workload. This design works well when many fixed size memory blocks are needed.
+
+4. Memory safety audit
+
+The implementation uses properly aligned storage and atomic operations for the free list. The pool buffer is allocated once and released once in the destructor. During testing, the project was built and run with AddressSanitizer using Microsoft Visual Studio 2022 Build Tools. AddressSanitizer did not report any memory errors during testing.
