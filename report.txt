@@ -1,23 +1,39 @@
 Architectural analysis
 
-The project uses one pre allocated memory block and splits it into fixed size chunks. Free chunks are stored in a simple lock free linked list. Each chunk is a `Node`, and the head of the list is an atomic pointer.
+Project report
+
+- Uses a single pre-allocated memory block divided into fixed-size chunks.
+- Free chunks are kept in a simple lock-free singly linked list (`Node`).
+- The free-list head is stored in `std::atomic<Node*>`.
+- Allocation: pop head; Deallocation: push node to head (compare-and-swap).
 
 When a chunk is needed, the code takes the first one from the list. When a chunk is returned, it is pushed back onto the front. This is done with compare-and-swap so no locks are used.
 
 Concurrency safety
 
-The free list head is a `std::atomic<Node*>`, and both allocation and deallocation use `compare_exchange_weak`. This lets multiple threads work on the same pool without a mutex. The `Node` and the head pointer are aligned to 64 bytes to help reduce false sharing between threads.
+- Allocation and deallocation use `compare_exchange_weak` on the atomic head, so no mutexes are required.
+- `Node` and the atomic head are aligned to 64 bytes to reduce false sharing.
+- The pool only reuses the internal buffer; it does not return memory to the OS.
 
 The pool only reuses memory from the same buffer and does not return memory to the system. Freed chunks go back into the free list and can be used again.
 
 Performance trade offs
 
-This pool works best when all allocations are the same size. It pre-allocates one block and reuses chunks, instead of calling `malloc` and `free` for every operation.
+- Designed for repeated fixed-size allocations and reuse.
+- Avoids `malloc`/`free` overhead by reusing pre-allocated chunks.
+- Does not support variable-sized allocations, automatic growth, or coalescing.
 
 The trade off is that it does not support different chunk sizes or automatic growth. It also does not merge free chunks, so the pool must be big enough for the workload.
 
 Memory safety audit
 
-The buffer is allocated once and released once in the destructor. The free list uses atomic updates, which avoids races on the list itself.
+- Buffer allocated once in constructor and released in destructor.
+- Atomic operations protect the free list; no data races were found during testing.
+- AddressSanitizer was used on MSVC; no memory errors were reported.
 
 AddressSanitizer was run on MSVC, and it did not report any memory errors.
+
+Notes
+
+- The implementation intentionally keeps the design simple for the assignment scope.
+- For production use, consider ABA protection and dynamic pool sizing.
