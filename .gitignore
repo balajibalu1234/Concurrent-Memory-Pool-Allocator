@@ -1,0 +1,27 @@
+# Build artifacts
+*.exe
+*.obj
+*.pdb
+*.ilk
+*.log
+*.lib
+*.exp
+
+# VS and editor
+.vs/
+.vscode/
+*.code-workspace
+
+# Temp
+build/
+bin/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Sanitizer outputs
+*.asan
+
+# Ignore project settings if any
+.vscode/
