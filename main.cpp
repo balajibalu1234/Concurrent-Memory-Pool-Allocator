@@ -18,6 +18,12 @@ struct alignas(64) Node
     Node* next;
 };
 
+namespace
+{
+constexpr size_t kTlsCacheCapacity = 128;
+thread_local std::vector<Node*> tls_cache;
+}
+
 class SimplePool
 {
 public:
@@ -37,7 +43,7 @@ public:
             list = node;
         }
 
-        head_.store(list);
+        head_.store(list, std::memory_order_release);
     }
 
     ~SimplePool()
@@ -50,11 +56,23 @@ public:
 
     void* allocate()
     {
-        Node* current = head_.load();
+        if (!tls_cache.empty())
+        {
+            Node* node = tls_cache.back();
+            tls_cache.pop_back();
+            node->next = nullptr;
+            return node;
+        }
+
+        Node* current = head_.load(std::memory_order_acquire);
         while (current != nullptr)
         {
             Node* next = current->next;
-            if (head_.compare_exchange_weak(current, next))
+            if (head_.compare_exchange_weak(
+                    current,
+                    next,
+                    std::memory_order_acq_rel,
+                    std::memory_order_acquire))
             {
                 current->next = nullptr;
                 return current;
@@ -67,12 +85,24 @@ public:
     void deallocate(void* pointer)
     {
         Node* node = static_cast<Node*>(pointer);
-        Node* expected = head_.load();
+        node->next = nullptr;
+
+        if (tls_cache.size() < kTlsCacheCapacity)
+        {
+            tls_cache.push_back(node);
+            return;
+        }
+
+        Node* expected = head_.load(std::memory_order_acquire);
         do
         {
             node->next = expected;
         }
-        while (!head_.compare_exchange_weak(expected, node));
+        while (!head_.compare_exchange_weak(
+            expected,
+            node,
+            std::memory_order_acq_rel,
+            std::memory_order_acquire));
     }
 
 private:

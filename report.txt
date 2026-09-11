@@ -1,39 +1,19 @@
 Architectural analysis
 
-Project report
-
-- Uses a single pre-allocated memory block divided into fixed-size chunks.
-- Free chunks are kept in a simple lock-free singly linked list (`Node`).
-- The free-list head is stored in `std::atomic<Node*>`.
-- Allocation: pop head; Deallocation: push node to head (compare-and-swap).
-
-When a chunk is needed, the code takes the first one from the list. When a chunk is returned, it is pushed back onto the front. This is done with compare-and-swap so no locks are used.
+This project uses one pre-allocated buffer that is split into fixed-size chunks. The free chunks are tracked with a lock-free singly linked list. The head of that list is stored in an atomic pointer, so allocation and release can happen without using mutexes.
 
 Concurrency safety
 
-- Allocation and deallocation use `compare_exchange_weak` on the atomic head, so no mutexes are required.
-- `Node` and the atomic head are aligned to 64 bytes to reduce false sharing.
-- The pool only reuses the internal buffer; it does not return memory to the OS.
+The allocator uses compare-and-swap to pop from the head on allocation and push back to the head on deallocation. I also added a small thread-local cache, so each thread can reuse recently freed chunks before it needs to touch the global free list. This reduces contention while keeping the core data structure lock-free.
 
-The pool only reuses memory from the same buffer and does not return memory to the system. Freed chunks go back into the free list and can be used again.
+Performance trade-offs
 
-Performance trade offs
-
-- Designed for repeated fixed-size allocations and reuse.
-- Avoids `malloc`/`free` overhead by reusing pre-allocated chunks.
-- Does not support variable-sized allocations, automatic growth, or coalescing.
-
-The trade off is that it does not support different chunk sizes or automatic growth. It also does not merge free chunks, so the pool must be big enough for the workload.
+This design is well suited to repeated fixed-size requests because it avoids repeated calls to `malloc` and `free`. The allocator reuses its own internal storage, which makes it faster for workloads that repeatedly allocate and release the same sized blocks. It does not support variable-sized blocks, automatic growth, or chunk coalescing.
 
 Memory safety audit
 
-- Buffer allocated once in constructor and released in destructor.
-- Atomic operations protect the free list; no data races were found during testing.
-- AddressSanitizer was used on MSVC; no memory errors were reported.
-
-AddressSanitizer was run on MSVC, and it did not report any memory errors.
+The pool allocates its backing storage once in the constructor and frees it once in the destructor. The free-list updates are protected by atomic operations, and the code uses aligned storage to reduce false sharing. For heavier workloads, a full production-grade design would still benefit from stronger ABA protection, such as hazard pointers or epoch-based reclamation.
 
 Notes
 
-- The implementation intentionally keeps the design simple for the assignment scope.
-- For production use, consider ABA protection and dynamic pool sizing.
+This version stays intentionally simple for the assignment scope, but it now includes thread-local caching to reduce contention and better align with the requested concurrency design.
