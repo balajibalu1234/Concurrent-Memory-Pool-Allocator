@@ -1,33 +1,41 @@
 Concurrent Memory Pool Allocator
 
-Simple student project implementing a fixed-size, lock-free memory pool in C++20.
+I built this as a small C++20 project to explore how a fixed-size, lock-free allocator can reuse memory without relying on mutexes. The main goal was to keep the design simple while still showing the core ideas behind lock-free allocation, thread contention, and benchmark comparison.
 
-Files:
-- main.cpp — allocator and benchmark
-- report.txt — short project analysis (architectural analysis, concurrency safety, performance trade offs, memory safety audit)
+What is in this repository
+- main.cpp — allocator implementation and a simple benchmark
+- report.txt — project notes and design observations
 
-Build and run (MSVC Developer Command Prompt for x64):
+How it works
+- The pool keeps one large buffer in memory and splits it into fixed-size chunks.
+- Free chunks are stored in a lock-free linked list.
+- Allocation removes the head of the list with compare-and-swap.
+- Deallocation pushes a chunk back onto the head.
+- I also added a tiny thread-local cache so each thread can reuse recently freed blocks before touching the shared list again.
 
-1. Open "Developer Command Prompt for VS 2022" (x64)
-2. Build:
+Build and run on Windows
+
+1. Open the MSVC Developer Command Prompt for x64.
+2. Build the project:
 
 ```bat
 cl /nologo /std:c++20 /W4 /EHsc main.cpp /Fe:pool.exe
 ```
 
-3. Run:
+3. Run it:
 
 ```bat
 pool.exe
 ```
 
-Optional: build with AddressSanitizer (if supported by your MSVC):
+Optional ASan build
 
 ```bat
 cl /nologo /std:c++20 /W4 /EHsc /fsanitize=address /Zi main.cpp /Fe:pool_asan.exe
 pool_asan.exe
 ```
 
-Notes:
-- This project is a small assignment submission. Do not include build artifacts when pushing to Git.
-- The allocator is designed for fixed-size allocations and does not support dynamic growth or variable-sized blocks.
+Notes
+- This project is meant for learning and assignment-style work.
+- The allocator is optimized for fixed-size allocations only.
+- It does not support dynamic resizing or variable-size blocks.

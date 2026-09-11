@@ -1,19 +1,19 @@
 Architectural analysis
 
-This project uses one pre-allocated buffer that is split into fixed-size chunks. The free chunks are tracked with a lock-free singly linked list. The head of that list is stored in an atomic pointer, so allocation and release can happen without using mutexes.
+I wanted a simple allocator that could reuse memory quickly in a multi-threaded setting. The design keeps one large buffer and splits it into fixed-size chunks. The free chunks are stored in a singly linked list, and the head of that list is protected by an atomic pointer.
 
 Concurrency safety
 
-The allocator uses compare-and-swap to pop from the head on allocation and push back to the head on deallocation. I also added a small thread-local cache, so each thread can reuse recently freed chunks before it needs to touch the global free list. This reduces contention while keeping the core data structure lock-free.
+Allocation and release are handled with compare-and-swap instead of locks. I also added a small thread-local cache so each thread can hold a few recently freed blocks before it needs to go back to the shared free list. That helps reduce contention without changing the fact that the main structure is still lock-free.
 
 Performance trade-offs
 
-This design is well suited to repeated fixed-size requests because it avoids repeated calls to `malloc` and `free`. The allocator reuses its own internal storage, which makes it faster for workloads that repeatedly allocate and release the same sized blocks. It does not support variable-sized blocks, automatic growth, or chunk coalescing.
+This approach is useful when the same block size is used repeatedly. It avoids the overhead of calling `malloc` and `free` every time, so it can be faster for hot paths that reuse memory in a tight loop. The trade-off is that it is only suitable for fixed-size objects, and it does not grow automatically or merge free blocks.
 
 Memory safety audit
 
-The pool allocates its backing storage once in the constructor and frees it once in the destructor. The free-list updates are protected by atomic operations, and the code uses aligned storage to reduce false sharing. For heavier workloads, a full production-grade design would still benefit from stronger ABA protection, such as hazard pointers or epoch-based reclamation.
+The backing storage is allocated once in the constructor and released once in the destructor. The free-list operations are synchronized with atomic updates, and the data is aligned to reduce false sharing. For a more complete production design, I would still want a stronger reclamation strategy such as hazard pointers or epoch-based reclamation.
 
 Notes
 
-This version stays intentionally simple for the assignment scope, but it now includes thread-local caching to reduce contention and better align with the requested concurrency design.
+This version is intentionally small and straightforward, but it tries to reflect the practical ideas behind a lock-free pool: low overhead, reduced contention, and a straightforward benchmark for comparison with the standard allocator.

@@ -56,6 +56,8 @@ public:
 
     void* allocate()
     {
+        // The thread-local cache is just a small optimization so a thread can reuse its own blocks
+        // before it has to touch the shared free list again.
         if (!tls_cache.empty())
         {
             Node* node = tls_cache.back();
@@ -84,6 +86,8 @@ public:
 
     void deallocate(void* pointer)
     {
+        // A small per-thread cache helps reduce pressure on the shared head when a thread
+        // frees and reuses blocks quickly.
         Node* node = static_cast<Node*>(pointer);
         node->next = nullptr;
 
